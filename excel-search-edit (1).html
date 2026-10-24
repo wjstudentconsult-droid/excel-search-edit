@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ค้นหาและแก้ไขข้อมูล Excel</title>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--bg:#f3f5f4;--card:#fff;--ink:#1d2b27;--mute:#6b7a75;--line:#d9e0dd;--pri:#0f6b57;--priD:#0a4f40;--hl:#ffe36e;--hlInk:#5c4500;--danger:#b3372f}
+@media(prefers-color-scheme:dark){:root{--bg:#141a18;--card:#1d2522;--ink:#e8efec;--mute:#93a39d;--line:#33403b;--pri:#38b498;--priD:#5fd0b5;--hl:#6b5a14;--hlInk:#fff0b0;--danger:#ef7b73}}
+*{box-sizing:border-box}
+body{margin:0;font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(--ink);padding:16px;font-size:16px}
+.wrap{max-width:1200px;margin:0 auto}
+h1{font-size:1.5rem;margin:0 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-bottom:14px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+button{font:inherit;padding:8px 16px;border-radius:8px;border:1px solid var(--pri);background:var(--pri);color:#fff;cursor:pointer;font-weight:600}
+button:hover{background:var(--priD)}
+button.ghost{background:transparent;color:var(--pri)}
+button.ghost:hover{background:rgba(15,107,87,.1)}
+button.danger{background:transparent;color:var(--danger);border-color:var(--danger)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--pri);outline-offset:1px}
+input[type=text],input[type=search],select{font:inherit;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink)}
+#q{width:100%;font-size:1.2rem}
+.hidden{display:none!important}
+.muted{color:var(--mute);font-size:.9rem}
+.tbl{overflow:auto;max-height:65vh;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{border:1px solid var(--line);padding:6px 10px;white-space:nowrap;text-align:left}
+th{background:var(--pri);color:#fff;position:sticky;top:0}
+td.chg{background:var(--hl);color:var(--hlInk);font-weight:600}
+td.edit{padding:2px}
+td.edit input{width:100%;min-width:120px;border:1px solid var(--line);border-radius:4px;padding:6px 8px;font:inherit;background:var(--card);color:var(--ink)}
+td.edit input.dirty{background:var(--hl);color:var(--hlInk)}
+#results{margin-top:10px;max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+.hit{padding:9px 12px;border-bottom:1px solid var(--line);cursor:pointer}
+.hit:last-child{border-bottom:0}
+.hit:hover,.hit:focus{background:rgba(15,107,87,.12);outline:none}
+.hit mark{background:var(--hl);color:var(--hlInk);padding:0 2px;border-radius:3px}
+.hit small{color:var(--mute);margin-left:8px}
+td.old{color:var(--danger);text-decoration:line-through}
+td.new{font-weight:600;color:var(--pri)}
+tr.go{cursor:pointer}
+tr.go:hover td{background:rgba(15,107,87,.12)}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 20px;border-radius:8px;opacity:0;transition:opacity .3s;pointer-events:none}
+#toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>ค้นหาและแก้ไขข้อมูล Excel</h1>
+
+<div class="card" id="upBox">
+  <div class="row">
+    <input type="file" id="file" accept=".xlsx,.xls,.csv">
+    <select id="sheetSel" class="hidden"></select>
+  </div>
+  <p class="muted" id="info">เลือกไฟล์ Excel (.xlsx, .xls, .csv) เพื่อเริ่มต้น แถวแรกของชีตจะเป็นหัวข้อคอลัมน์</p>
+</div>
+
+<div id="app" class="hidden">
+  <div class="card" id="searchBox">
+    <input type="search" id="q" placeholder="พิมพ์ตัวอักษรหรือตัวเลขเพื่อค้นหา..." autocomplete="off">
+    <div id="results" class="hidden"></div>
+  </div>
+
+  <div class="card hidden" id="editBox">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <strong id="editTitle"></strong>
+      <div class="row">
+        <button id="saveBtn">บันทึกข้อมูล</button>
+        <button class="ghost" id="cancelBtn">ยกเลิก</button>
+      </div>
+    </div>
+    <div class="tbl"><table id="editTbl"></table></div>
+  </div>
+
+  <div class="card hidden" id="sumBox">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <strong id="sumTitle"></strong>
+      <button class="ghost" id="sumDl">ดาวน์โหลดสรุปเป็น Excel</button>
+    </div>
+    <div class="tbl" style="max-height:35vh"><table id="sumTbl"></table></div>
+  </div>
+
+  <div class="card" id="mainBox">
+    <div class="row" style="justify-content:space-between;margin-bottom:10px">
+      <span class="muted" id="stat"></span>
+      <div class="row">
+        <button id="dlBtn">ดาวน์โหลดไฟล์ Excel</button>
+        <button class="danger" id="resetBtn">รีเซ็ตข้อมูล</button>
+      </div>
+    </div>
+    <div class="tbl"><table id="mainTbl"></table></div>
+  </div>
+</div>
+</div>
+<div id="toast"></div>
+
+<script>
+const $=id=>document.getElementById(id);
+let wb=null,fileName='data.xlsx',sheetName='',headers=[],orig=[],data=[],changed=new Set(),curRow=-1;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const toast=m=>{const t=$('toast');t.textContent=m;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2000)};
+
+$('file').addEventListener('change',e=>{
+  const f=e.target.files[0]; if(!f)return;
+  fileName=f.name;
+  const r=new FileReader();
+  r.onload=ev=>{
+    try{
+      wb=XLSX.read(new Uint8Array(ev.target.result),{type:'array'});
+      const sel=$('sheetSel');
+      sel.innerHTML=wb.SheetNames.map(n=>`<option>${esc(n)}</option>`).join('');
+      sel.classList.toggle('hidden',wb.SheetNames.length<2);
+      loadSheet(wb.SheetNames[0]);
+    }catch(err){toast('อ่านไฟล์ไม่สำเร็จ');}
+  };
+  r.readAsArrayBuffer(f);
+});
+$('sheetSel').addEventListener('change',e=>loadSheet(e.target.value));
+
+function loadSheet(name){
+  sheetName=name;
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[name],{header:1,defval:'',raw:true});
+  if(!rows.length){toast('ชีตนี้ไม่มีข้อมูล');return}
+  const w=Math.max(...rows.map(r=>r.length));
+  headers=Array.from({length:w},(_,i)=>rows[0][i]!==undefined&&rows[0][i]!==''?rows[0][i]:'คอลัมน์ '+(i+1));
+  orig=rows.slice(1).map(r=>Array.from({length:w},(_,i)=>r[i]===undefined?'':r[i]));
+  doReset(true);
+  $('app').classList.remove('hidden');
+  $('info').textContent=`ไฟล์: ${fileName} | ชีต: ${name} | ${orig.length} แถว, ${w} คอลัมน์`;
+}
+
+function doReset(silent){
+  data=orig.map(r=>r.slice());
+  changed=new Set();curRow=-1;
+  $('editBox').classList.add('hidden');
+  $('q').value='';$('results').classList.add('hidden');
+  renderMain();
+  if(!silent)toast('รีเซ็ตข้อมูลแล้ว');
+}
+
+function renderMain(){
+  let h='<thead><tr><th>#</th>'+headers.map(x=>`<th>${esc(x)}</th>`).join('')+'</tr></thead><tbody>';
+  data.forEach((r,i)=>{
+    h+=`<tr><td>${i+1}</td>`+r.map((v,c)=>`<td class="${changed.has(i+':'+c)?'chg':''}">${esc(v)}</td>`).join('')+'</tr>';
+  });
+  $('mainTbl').innerHTML=h+'</tbody>';
+  renderSummary();
+  $('stat').textContent=`ทั้งหมด ${data.length} แถว | แก้ไขแล้ว ${changed.size} ช่อง (ไฮไลต์สีเหลือง)`;
+}
+
+function summaryRows(){
+  return [...changed].map(k=>{const [i,c]=k.split(':').map(Number);return {i,c}})
+    .sort((a,b)=>a.i-b.i||a.c-b.c)
+    .map(({i,c})=>({i,c,ref:data[i][0],col:headers[c],old:orig[i][c],nw:data[i][c]}));
+}
+function renderSummary(){
+  const rows=summaryRows(),box=$('sumBox');
+  box.classList.toggle('hidden',!rows.length);
+  if(!rows.length)return;
+  $('sumTitle').textContent=`สรุปส่วนที่แก้ไข (${rows.length} ช่อง ใน ${new Set(rows.map(r=>r.i)).size} แถว)`;
+  $('sumTbl').innerHTML='<thead><tr><th>ลำดับ</th><th>แถวที่</th><th>'+esc(headers[0])+'</th><th>คอลัมน์ที่แก้</th><th>ข้อมูลเดิม</th><th>ข้อมูลใหม่</th></tr></thead><tbody>'+
+    rows.map((r,n)=>`<tr class="go" data-i="${r.i}" title="คลิกเพื่อแก้ไขแถวนี้อีกครั้ง"><td>${n+1}</td><td>${r.i+1}</td><td>${esc(r.ref)}</td><td>${esc(r.col)}</td><td class="old">${esc(r.old)===''?'(ว่าง)':esc(r.old)}</td><td class="new">${esc(r.nw)===''?'(ว่าง)':esc(r.nw)}</td></tr>`).join('')+'</tbody>';
+}
+$('sumTbl').addEventListener('click',e=>{const t=e.target.closest('tr.go');if(t)openEdit(+t.dataset.i)});
+$('sumDl').addEventListener('click',()=>{
+  const aoa=[['แถวที่',headers[0],'คอลัมน์ที่แก้','ข้อมูลเดิม','ข้อมูลใหม่'],...summaryRows().map(r=>[r.i+1,r.ref,r.col,r.old,r.nw])];
+  const out=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(out,XLSX.utils.aoa_to_sheet(aoa),'สรุปการแก้ไข');
+  XLSX.writeFile(out,fileName.replace(/\.(xlsx|xls|csv)$/i,'')+'_summary.xlsx');
+});
+
+// Search: instant, matches any cell containing the keyword
+let timer;
+$('q').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(search,80)});
+function search(){
+  const k=$('q').value.trim().toLowerCase(), box=$('results');
+  if(!k){box.classList.add('hidden');return}
+  const hits=[];
+  for(let i=0;i<data.length&&hits.length<50;i++){
+    const c=data[i].findIndex(v=>String(v).toLowerCase().includes(k));
+    if(c>-1)hits.push({i,c});
+  }
+  box.classList.remove('hidden');
+  if(!hits.length){box.innerHTML='<div class="hit muted">ไม่พบข้อมูล</div>';return}
+  box.innerHTML=hits.map(({i,c})=>{
+    const t=String(data[i][c]),p=t.toLowerCase().indexOf(k);
+    const m=esc(t.slice(0,p))+'<mark>'+esc(t.slice(p,p+k.length))+'</mark>'+esc(t.slice(p+k.length));
+    return `<div class="hit" tabindex="0" data-i="${i}">${m}<small>แถว ${i+1} · ${esc(headers[c])}</small></div>`;
+  }).join('');
+}
+$('results').addEventListener('click',e=>{const h=e.target.closest('.hit');if(h&&h.dataset.i)openEdit(+h.dataset.i)});
+$('results').addEventListener('keydown',e=>{if(e.key==='Enter'){const h=e.target.closest('.hit');if(h&&h.dataset.i)openEdit(+h.dataset.i)}});
+$('q').addEventListener('keydown',e=>{if(e.key==='Enter'){const h=document.querySelector('#results .hit[data-i]');if(h)openEdit(+h.dataset.i)}});
+
+function openEdit(i){
+  curRow=i;
+  $('editTitle').textContent=`แก้ไขข้อมูลแถวที่ ${i+1}`;
+  let h='<thead><tr>'+headers.map(x=>`<th>${esc(x)}</th>`).join('')+'</tr></thead><tbody><tr>';
+  data[i].forEach((v,c)=>{h+=`<td class="edit"><input type="text" data-c="${c}" value="${esc(v)}"></td>`});
+  $('editTbl').innerHTML=h+'</tr></tbody>';
+  $('editBox').classList.remove('hidden');
+  $('results').classList.add('hidden');
+  $('editBox').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+$('editTbl').addEventListener('input',e=>{
+  const inp=e.target,c=+inp.dataset.c;
+  inp.classList.toggle('dirty',inp.value!==String(data[curRow][c]));
+});
+
+$('saveBtn').addEventListener('click',()=>{
+  document.querySelectorAll('#editTbl input').forEach(inp=>{
+    const c=+inp.dataset.c,old=data[curRow][c];
+    if(inp.value===String(old))return;
+    // keep numbers as numbers
+    const t=inp.value.trim();
+    const nv=(t!==''&&!isNaN(Number(t))&&typeof old==='number')?Number(t):inp.value;
+    data[curRow][c]=nv;
+    const key=curRow+':'+c;
+    if(String(nv)===String(orig[curRow][c]))changed.delete(key);else changed.add(key);
+  });
+  $('editBox').classList.add('hidden');
+  $('q').value='';
+  renderMain();
+  $('mainBox').scrollIntoView({behavior:'smooth'});
+  toast('บันทึกข้อมูลแล้ว');
+});
+$('cancelBtn').addEventListener('click',()=>$('editBox').classList.add('hidden'));
+
+$('dlBtn').addEventListener('click',()=>{
+  const ws=XLSX.utils.aoa_to_sheet([headers,...data]);
+  const out=XLSX.utils.book_new();
+  wb.SheetNames.forEach(n=>XLSX.utils.book_append_sheet(out,n===sheetName?ws:wb.Sheets[n],n));
+  XLSX.writeFile(out,fileName.replace(/\.(xlsx|xls|csv)$/i,'')+'_edited.xlsx');
+});
+$('resetBtn').addEventListener('click',()=>{
+  if(confirm('ต้องการรีเซ็ตข้อมูลกลับเป็นข้อมูลเดิมของไฟล์ที่อัพโหลดใช่ไหม? การแก้ไขทั้งหมดจะหายไป'))doReset();
+});
+</script>
+</body>
+</html>
